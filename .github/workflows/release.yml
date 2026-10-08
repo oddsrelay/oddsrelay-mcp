@@ -1,0 +1,34 @@
+# Publishes to npm when a v* tag is pushed, through npm trusted publishing (OIDC): no token is stored anywhere.
+# Trusted publishing needs npm 11.5.1 or later and Node 22.14.0 or later; Node 24 ships a recent enough npm.
+# npm adds provenance on its own under trusted publishing; --provenance just makes it explicit.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Tag matches package.json
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - run: npm ci
+      - run: npm test
+      # npm's trusted-publisher settings need the package to exist, so the first version may be published by hand.
+      - name: Skip a version already on npm
+        id: npm
+        run: |
+          if [ -n "$(npm view "oddsrelay-mcp@${GITHUB_REF_NAME#v}" version 2> /dev/null)" ]; then echo "published=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.npm.outputs.published != 'true'
+        run: npm publish --provenance --access public

@@ -1,0 +1,51 @@
+{
+  "name": "oddsrelay-mcp",
+  "version": "0.1.0",
+  "mcpName": "io.github.oddsrelay/oddsrelay-mcp",
+  "description": "Read-only MCP server for OddsRelay odds data, with a token cap on every call that spends tokens.",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "odds",
+    "odds-api",
+    "sports-odds",
+    "bookmakers",
+    "oddsrelay"
+  ],
+  "homepage": "https://oddsrelay.io",
+  "bugs": {
+    "url": "https://github.com/oddsrelay/oddsrelay-mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oddsrelay/oddsrelay-mcp.git"
+  },
+  "license": "MIT",
+  "author": "OddsRelay <hello@oddsrelay.io> (https://oddsrelay.io)",
+  "type": "module",
+  "bin": {
+    "oddsrelay-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/server.test.mjs",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "oddsrelay": "^0.1.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "typescript": "6.0.3"
+  }
+}
