@@ -56,6 +56,13 @@ function board(n) {
   return { meta, data: Array.from({ length: n }, (_, i) => event(i)) };
 }
 
+/** A board whose events are each longer than one reply's budget. */
+function wideBoard(n) {
+  const b = board(n);
+  for (const e of b.data) e.markets[0].outcomes[0].name = "x".repeat(35000);
+  return b;
+}
+
 const rawEvent = {
   id: "or_evt_1",
   cluster_id: null,
@@ -130,15 +137,20 @@ test("trims long replies to limit and says how many more there are", async () =>
 
   const odds = await call(client, "odds", { ...oddsArgs, limit: 5 });
   assert.equal(odds.body.events.length, 5);
-  assert.match(odds.body.more, /^7 more events not shown/);
+  assert.match(odds.body.more, /^7 more events not shown: raise limit/);
   assert.equal(odds.body.meta.count, 12);
 
   const all = await call(client, "odds", oddsArgs);
   assert.equal(all.body.events.length, 10, "default limit");
 
+  // Rows too big to fit: cut for size, never below one row, and the note says to narrow rather than raise limit.
+  const wide = await call(await connect(stub((u) => (u.searchParams.get("quote") === "true" ? quote(10) : [200, wideBoard(6)])).fetch), "odds", oddsArgs);
+  assert.equal(wide.body.events.length, 1);
+  assert.match(wide.body.more, /not shown, to keep the reply short: narrow the filters$/);
+
   const sports = await call(client, "sports", { limit: 1 });
   assert.equal(sports.body.sports.length, 1);
-  assert.match(sports.body.more, /^1 more sports not shown/);
+  assert.match(sports.body.more, /^1 more sports not shown: raise limit/);
   assert.equal(sports.body.next_cursor, fixture("v2-sports.page.json").meta.next_cursor);
 });
 

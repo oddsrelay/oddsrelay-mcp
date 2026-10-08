@@ -10,6 +10,9 @@ export const VERSION = "0.1.0";
 /** The most tokens a call may spend when the assistant passes no max_tokens. */
 const DEFAULT_MAX_TOKENS = 500;
 
+/** Characters of rows per reply, roughly 10k tokens of JSON: under the size where MCP clients start to warn. */
+const REPLY_BUDGET = 30_000;
+
 const INSTRUCTIONS =
   "Read-only tools for the OddsRelay odds API. sports, events, bookmakers, coverage and usage cost no tokens. " +
   "odds and event_odds spend tokens from the user's account: each asks the API for a price first and refuses " +
@@ -239,10 +242,16 @@ function body<T>(res: Result<T>): T {
   return res.data;
 }
 
+/** The first `limit` rows that fit in REPLY_BUDGET characters (always at least one), and a note counting the rest. */
 function trim<T>(rows: T[], limit: number, noun: string): Record<string, unknown> {
-  if (rows.length <= limit) return { [noun]: rows };
-  const more = `${rows.length - limit} more ${noun} not shown: raise limit (up to 100) or narrow the filters`;
-  return { [noun]: rows.slice(0, limit), more };
+  let n = 0;
+  for (let size = 0; n < Math.min(limit, rows.length); n++) {
+    size += JSON.stringify(rows[n]).length;
+    if (n > 0 && size > REPLY_BUDGET) break;
+  }
+  if (n === rows.length) return { [noun]: rows };
+  const why = n < limit ? ", to keep the reply short: narrow the filters" : ": raise limit (up to 100) or narrow the filters";
+  return { [noun]: rows.slice(0, n), more: `${rows.length - n} more ${noun} not shown${why}` };
 }
 
 function page<T>(p: Page<T>, limit: number, noun: string): Record<string, unknown> {

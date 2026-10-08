@@ -79,8 +79,9 @@ what the call cost and what is left.
 
 ## Replies
 
-Replies are compact JSON. Long lists are cut to `limit` rows (each tool has its own default), with a `more` note
-saying how many were left out. Paged tools return `next_cursor`, which the assistant passes back as `cursor`.
+Replies are compact JSON. Long lists are cut to `limit` rows (each tool has its own default) and to a size an
+assistant can read in one go, with a `more` note saying how many rows were left out and what to change to see them.
+Paged tools return `next_cursor`, which the assistant passes back as `cursor`.
 
 Errors come back as tool errors with the API's error `code` and, where the API sends them, the values it accepts:
 ask for an unknown bookmaker and the error lists the keys it accepts.
