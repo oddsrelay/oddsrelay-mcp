@@ -85,13 +85,14 @@ const rawEvent = {
 
 const oddsArgs = { type: "standard", sport: "soccer", bookmakers: ["ladbrokes"] };
 
-test("lists the seven read-only tools, with max_tokens on the two that spend", async () => {
+test("lists the seven tools: max_tokens and no read-only mark on the two that spend", async () => {
   const client = await connect(stub(() => [500, {}]).fetch);
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), ["bookmakers", "coverage", "event_odds", "events", "odds", "sports", "usage"]);
   for (const t of tools) {
-    assert.equal(t.annotations?.readOnlyHint, true, t.name);
     const spends = t.name === "odds" || t.name === "event_odds";
+    assert.equal(t.annotations?.readOnlyHint, !spends, t.name);
+    if (spends) assert.equal(t.annotations?.destructiveHint, false, t.name);
     assert.equal("max_tokens" in (t.inputSchema.properties ?? {}), spends, t.name);
   }
   const odds = tools.find((t) => t.name === "odds");
@@ -150,8 +151,32 @@ test("trims long replies to limit and says how many more there are", async () =>
 
   const sports = await call(client, "sports", { limit: 1 });
   assert.equal(sports.body.sports.length, 1);
-  assert.match(sports.body.more, /^1 more sports not shown: raise limit/);
-  assert.equal(sports.body.next_cursor, fixture("v2-sports.page.json").meta.next_cursor);
+  assert.match(sports.body.more, /^1 more sports on this page not shown: pass next_cursor/);
+  const rest = await call(client, "sports", { limit: 1, cursor: sports.body.next_cursor });
+  assert.deepEqual(rest.body.sports, fixture("v2-sports.page.json").data.slice(1));
+  assert.equal(rest.body.next_cursor, fixture("v2-sports.page.json").meta.next_cursor, "then the API's own cursor");
+});
+
+test("paged tools reach every row when limit cuts a page short", async () => {
+  // Two API pages: 250 rows, then 5. Each page is requested with the API's cursor, never ours.
+  const rows = (prefix, n) => Array.from({ length: n }, (_, i) => ({ key: `${prefix}${i}` }));
+  const pages = { "": { data: rows("a", 250), next: "P2" }, P2: { data: rows("b", 5), next: null } };
+  for (const [name, args, noun] of [["sports", {}, "sports"], ["events", { sport: "soccer" }, "events"]]) {
+    const { fetch, calls } = stub((u) => {
+      const p = pages[u.searchParams.get("cursor") ?? ""];
+      return [200, { meta: { next_cursor: p.next }, data: p.data }];
+    });
+    const client = await connect(fetch);
+    const seen = [];
+    let cursor;
+    for (let i = 0; i < 10 && (i === 0 || cursor); i++) {
+      const { body } = await call(client, name, { ...args, limit: 100, ...(cursor ? { cursor } : {}) });
+      seen.push(...body[noun].map((r) => r.key));
+      cursor = body.next_cursor;
+    }
+    assert.deepEqual(seen, [...rows("a", 250), ...rows("b", 5)].map((r) => r.key), name);
+    assert.deepEqual(calls.map((c) => c.url.searchParams.get("cursor")), [null, null, null, "P2"], name);
+  }
 });
 
 test("event_odds narrows the reply to the named bookmakers and markets", async () => {
@@ -162,22 +187,17 @@ test("event_odds narrows the reply to the named bookmakers and markets", async (
   assert.match(res.body.more, /^1 more bookmakers/);
 });
 
-test("coverage reads both shapes as flat rows, filtered", async () => {
+test("coverage reads one product as flat rows with its market keys, never sending the key", async () => {
   const keyless = fixture("v2-coverage.keyless.json");
-  const { fetch, calls } = stub(() => [200, keyless]);
-  const res = await call(await connect(fetch, null), "coverage", { product: "dutching", bookmaker: "7bet" });
-  assert.equal(calls[0].headers.Authorization, undefined, "no key, no header");
-  assert.deepEqual(res.body.rows, keyless.products.dutching.filter((r) => r.bookmaker === "7bet"));
-  assert.deepEqual(res.body.markets, keyless.markets.dutching);
+  for (const key of [null, KEY]) {
+    const { fetch, calls } = stub(() => [200, keyless]);
+    const res = await call(await connect(fetch, key), "coverage", { product: "dutching", bookmaker: "7bet" });
+    assert.equal(calls[0].headers.Authorization, undefined, "no header, key set or not");
+    assert.deepEqual(res.body.rows, keyless.products.dutching.filter((r) => r.bookmaker === "7bet"));
+    assert.deepEqual(res.body.markets, keyless.markets.dutching);
+  }
 
-  const keyed = fixture("v2-coverage.keyed.json");
-  const withKey = await call(await connect(stub(() => [200, keyed]).fetch), "coverage", { product: "2up", sport: "soccer" });
-  assert.deepEqual(withKey.body.rows.map((r) => [r.bookmaker, r.events]), [
-    ["betmgm", keyed.products["2up"].bookmakers[0].sports.soccer.events],
-    ["betdaq", keyed.products["2up"].exchanges[0].sports.soccer.events],
-  ]);
-
-  const unknown = await call(await connect(stub(() => [200, keyed]).fetch), "coverage", { product: "nope" });
+  const unknown = await call(await connect(stub(() => [200, keyless]).fetch), "coverage", { product: "nope" });
   assert.equal(unknown.isError, true);
   assert.match(unknown.body.message, /products: /);
 });
@@ -188,6 +208,17 @@ test("API errors come back as tool errors with the code and the valid values", a
   assert.equal(res.isError, true);
   assert.equal(res.body.error, "unknown_bookmaker");
   assert.ok(res.body.valid.includes("bet365"));
+});
+
+test("a 402 keeps the cost, the balance and when it renews", async () => {
+  const short = { error: { code: "insufficient_tokens", message: "not enough tokens", cost: 12, remaining: 3, resets_at: "2026-11-01T00:00:00Z", request_id: "or_req_1" } };
+  const { fetch } = stub((u) => (u.searchParams.get("quote") === "true" ? quote(12) : [402, short]));
+  const res = await call(await connect(fetch), "odds", oddsArgs);
+  assert.equal(res.isError, true);
+  assert.deepEqual(
+    [res.body.error, res.body.cost, res.body.remaining, res.body.resets_at, res.body.request_id],
+    ["insufficient_tokens", 12, 3, "2026-11-01T00:00:00Z", "or_req_1"],
+  );
 });
 
 test("the key never appears in any tool output or error", async () => {

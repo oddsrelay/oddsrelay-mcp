@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { InsufficientTokensError, OddsRelay, OddsRelayError, OverBudgetError } from "oddsrelay";
-import type { CoverageKeyed, CoverageSummary, FetchLike, Page, Result, Tokens } from "oddsrelay";
+import type { FetchLike, Page, Result, Tokens } from "oddsrelay";
 import { z } from "zod";
 
 /** This package's version. package.json and server.json carry it too; a test keeps the three equal. */
@@ -28,6 +28,8 @@ const NO_KEY = {
 };
 
 const READ_ONLY = { readOnlyHint: true, openWorldHint: true };
+// Not read-only to a client: each call spends the user's tokens, so clients that confirm such calls will ask first.
+const SPENDS = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
 
 const BOARDS = ["standard", "2up", "dutching", "each-way", "extra-place", "bog"] as const;
 
@@ -36,7 +38,7 @@ const key = z.string().regex(/^[a-z0-9_.-]+$/, "a lowercase key such as soccer o
 const keys = (max: number) => z.array(key).min(1).max(max);
 const region = key.optional().describe("Region code. Left out, the API uses uk.");
 const time = z.string().optional();
-const cursor = z.string().optional().describe("next_cursor from the previous page");
+const cursor = z.string().optional().describe("next_cursor from the previous reply, with the same other arguments");
 const limit = (rows: string, byDefault: number) =>
   z.number().int().min(1).max(100).default(byDefault).describe(`Most ${rows} to return; a note counts the rest`);
 const maxTokens = z
@@ -64,10 +66,11 @@ export function createServer(options: ServerOptions = {}): McpServer {
 
   // A fresh client per call, so no ETag is sent and a repeat call never comes back as a 304 without data.
   // ponytail: repeats are charged again; keep one client plus a reply cache if repeat calls turn out to matter.
+  // keyed false sends no key at all (an empty apiKey makes the client keyless).
   async function run(work: (client: OddsRelay) => Promise<unknown>, keyed = true): Promise<CallToolResult> {
     if (keyed && !apiKey) return reply(NO_KEY, true);
     try {
-      return reply(await work(new OddsRelay({ fetch: options.fetch })));
+      return reply(await work(new OddsRelay({ apiKey: keyed ? apiKey : "", fetch: options.fetch })));
     } catch (err) {
       return reply(explain(err), true);
     }
@@ -85,7 +88,11 @@ export function createServer(options: ServerOptions = {}): McpServer {
       inputSchema: { region, cursor, limit: limit("sports", 50) },
       annotations: READ_ONLY,
     },
-    (a) => run(async (c) => page(body(await c.sports({ region: a.region, cursor: a.cursor })), a.limit, "sports")),
+    (a) =>
+      run(async (c) => {
+        const at = unpack(a.cursor);
+        return page(body(await c.sports({ region: a.region, cursor: at.api })), at, a.limit, "sports");
+      }),
   );
 
   server.registerTool(
@@ -107,14 +114,15 @@ export function createServer(options: ServerOptions = {}): McpServer {
     },
     (a) =>
       run(async (c) => {
+        const at = unpack(a.cursor);
         const res = await c.events({
           sport: a.sport,
           region: a.region,
           commenceTimeFrom: a.commence_from,
           commenceTimeTo: a.commence_to,
-          cursor: a.cursor,
+          cursor: at.api,
         });
-        return page(body(res), a.limit, "events");
+        return page(body(res), at, a.limit, "events");
       }),
   );
 
@@ -133,8 +141,8 @@ export function createServer(options: ServerOptions = {}): McpServer {
     {
       title: "Coverage",
       description:
-        "Shows which bookmakers carry which sports on one product, and the product's market keys when the API " +
-        "lists them. Filter by bookmaker or sport. Works without a key. Costs no tokens.",
+        "Shows which bookmakers carry which sports on one product, and that product's market keys (the values " +
+        "odds takes as markets). Filter by bookmaker or sport. Costs no tokens and sends no key.",
       inputSchema: {
         product: key.default("standard").describe("standard, 2up, dutching, each-way, extra-place, bog or raw"),
         bookmaker: key.optional().describe("Only this bookmaker or exchange key"),
@@ -145,14 +153,15 @@ export function createServer(options: ServerOptions = {}): McpServer {
       annotations: READ_ONLY,
     },
     (a) =>
+      // Read without a key: only that view lists each product's market keys.
       run(async (c) => {
         const cov = body(await c.coverage({ region: a.region }));
-        const rows = coverageRows(cov, a.product).filter(
-          (r) => (!a.bookmaker || r.bookmaker === a.bookmaker) && (!a.sport || r.sport === a.sport),
-        );
-        const markets = "markets" in cov ? cov.markets[a.product] : undefined;
+        if (!("markets" in cov)) throw new Error("coverage came back without market keys");
+        const all = cov.products[a.product];
+        if (!all) throw new Error(`no product "${a.product}" in coverage; products: ${Object.keys(cov.products).join(", ")}`);
+        const rows = all.filter((r) => (!a.bookmaker || r.bookmaker === a.bookmaker) && (!a.sport || r.sport === a.sport));
         const where = { region: cov.region, generated_at: cov.generated_at, product: a.product };
-        return { ...where, markets, ...trim(rows, a.limit, "rows") };
+        return { ...where, markets: cov.markets[a.product], ...trim(rows, a.limit, "rows") };
       }, false),
   );
 
@@ -175,7 +184,7 @@ export function createServer(options: ServerOptions = {}): McpServer {
         limit: limit("events", 10),
         max_tokens: maxTokens,
       },
-      annotations: READ_ONLY,
+      annotations: SPENDS,
     },
     (a) =>
       run(async (c) => {
@@ -199,8 +208,9 @@ export function createServer(options: ServerOptions = {}): McpServer {
     {
       title: "Event odds",
       description:
-        "Reads every bookmaker's prices for one event id (from events or odds), narrowed to the bookmakers and " +
-        "markets you name. Spends tokens: priced first, and refused when it would cost more than max_tokens.",
+        "Reads one event's prices (id from events or odds) at each bookmaker and exchange carrying it, narrowed to " +
+        "the bookmakers and markets you name. Needs a key that can read raw odds. Spends tokens: priced first, " +
+        "and refused when it would cost more than max_tokens.",
       inputSchema: {
         id: key.describe("An event id such as or_evt_da71d5873e85"),
         bookmakers: keys(40).optional().describe("Only these bookmaker or exchange keys"),
@@ -209,7 +219,7 @@ export function createServer(options: ServerOptions = {}): McpServer {
         limit: limit("bookmakers", 10),
         max_tokens: maxTokens,
       },
-      annotations: READ_ONLY,
+      annotations: SPENDS,
     },
     (a) =>
       run(async (c) => {
@@ -242,42 +252,48 @@ function body<T>(res: Result<T>): T {
   return res.data;
 }
 
-/** The first `limit` rows that fit in REPLY_BUDGET characters (always at least one), and a note counting the rest. */
-function trim<T>(rows: T[], limit: number, noun: string): Record<string, unknown> {
+/** How many of the first `limit` rows fit in REPLY_BUDGET characters: always at least one when there are any. */
+function fit(rows: unknown[], limit: number): number {
   let n = 0;
   for (let size = 0; n < Math.min(limit, rows.length); n++) {
     size += JSON.stringify(rows[n]).length;
     if (n > 0 && size > REPLY_BUDGET) break;
   }
+  return n;
+}
+
+/** The rows that fit, and a note counting the rest. */
+function trim<T>(rows: T[], limit: number, noun: string): Record<string, unknown> {
+  const n = fit(rows, limit);
   if (n === rows.length) return { [noun]: rows };
   const why = n < limit ? ", to keep the reply short: narrow the filters" : ": raise limit (up to 100) or narrow the filters";
   return { [noun]: rows.slice(0, n), more: `${rows.length - n} more ${noun} not shown${why}` };
 }
 
-function page<T>(p: Page<T>, limit: number, noun: string): Record<string, unknown> {
-  return { ...trim(p.data, limit, noun), ...(p.meta.next_cursor ? { next_cursor: p.meta.next_cursor } : {}) };
+interface At {
+  /** Rows of the API page already shown. */
+  skip: number;
+  /** The API's own cursor for that page; none on the first page. */
+  api: string | undefined;
+}
+
+/** Our cursor is "<skip>:<the API's cursor>", so a page cut short resumes at its first row not shown. */
+function unpack(cursor: string | undefined): At {
+  const m = cursor?.match(/^(\d+):(.*)$/);
+  return m ? { skip: Number(m[1]), api: m[2] || undefined } : { skip: 0, api: cursor };
+}
+
+/** One API page from row `skip`, cut to fit. next_cursor goes on from the first row not shown. */
+function page<T>(p: Page<T>, at: At, limit: number, noun: string): Record<string, unknown> {
+  const rows = p.data.slice(at.skip);
+  const n = fit(rows, limit);
+  if (n === rows.length) return { [noun]: rows, ...(p.meta.next_cursor ? { next_cursor: p.meta.next_cursor } : {}) };
+  const more = `${rows.length - n} more ${noun} on this page not shown: pass next_cursor back as cursor`;
+  return { [noun]: rows.slice(0, n), more, next_cursor: `${at.skip + n}:${at.api ?? ""}` };
 }
 
 function spent(t: Tokens) {
   return { cost: t.cost, remaining: t.remaining };
-}
-
-interface CoverageRow {
-  bookmaker: string;
-  sport: string;
-  status?: string;
-  events?: number;
-  last_seen?: string | null;
-}
-
-/** One product's coverage as flat rows, from either shape: keyless (rows already) or keyed (venues with sports). */
-function coverageRows(cov: CoverageSummary | CoverageKeyed, product: string): CoverageRow[] {
-  const entry = cov.products[product];
-  if (!entry) throw new Error(`no product "${product}" in coverage; products: ${Object.keys(cov.products).join(", ")}`);
-  if (Array.isArray(entry)) return entry;
-  return [...entry.bookmakers, ...entry.exchanges].flatMap((venue) =>
-    Object.entries(venue.sports).map(([sport, s]) => ({ bookmaker: venue.key, sport, ...s })),
-  );
 }
 
 function explain(err: unknown): Record<string, unknown> {
