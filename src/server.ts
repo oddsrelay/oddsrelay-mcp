@@ -4,7 +4,7 @@ import { InsufficientTokensError, OddsRelay, OddsRelayError, OverBudgetError } f
 import type { FetchLike, Page, Result, Tokens } from "oddsrelay";
 import { z } from "zod";
 
-/** This package's version. package.json and server.json carry it too; a test keeps the three equal. */
+/** This package's version. package.json, server.json and manifest.json carry it too; tests keep them equal. */
 export const VERSION = "0.1.0";
 
 /** The most tokens a call may spend when the assistant passes no max_tokens. */

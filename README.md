@@ -11,8 +11,16 @@ API docs: https://oddsrelay.io/docs
 
 ## Set up
 
-You need Node 18 or later and an OddsRelay API key, which you create from your account at https://oddsrelay.io.
-The server reads the key from `ODDSRELAY_KEY`, set in your MCP client's config as below.
+You need an OddsRelay API key, which you create from your account at https://oddsrelay.io. The server reads the
+key from `ODDSRELAY_KEY`. The bundle sets it for you; the other routes set it in your MCP client's config and need
+Node 18 or later.
+
+### Claude Desktop (one-click bundle)
+
+Download `oddsrelay-mcp.mcpb` from the [latest release](https://github.com/oddsrelay/oddsrelay-mcp/releases/latest)
+and double-click it to install it in Claude Desktop, which asks for one setting: your API key. The setting is marked
+sensitive, so Claude Desktop masks it, and it passes the key to the server as `ODDSRELAY_KEY`. The bundle carries
+everything the server needs and runs on the Node built into Claude Desktop, so you need no Node of your own.
 
 ### Claude Code
 
@@ -20,7 +28,7 @@ The server reads the key from `ODDSRELAY_KEY`, set in your MCP client's config a
 claude mcp add --transport stdio oddsrelay --env ODDSRELAY_KEY=your_key_here -- npx -y oddsrelay-mcp
 ```
 
-### Claude Desktop
+### Claude Desktop (config file)
 
 Settings, Developer, Edit Config opens `claude_desktop_config.json`. Add the server, then restart Claude Desktop:
 
@@ -107,7 +115,9 @@ npm ci
 npm test
 ```
 
-The tests run the server against a stubbed `fetch` and make no network calls. To try the built server by hand,
+The tests run the server against a stubbed `fetch` and make no network calls. `npm run bundle` builds
+`oddsrelay-mcp.mcpb` from `dist` and the installed dependencies: `manifest.json` describes the bundle, and
+`.mcpbignore` keeps sources, tests and development packages out of it. To try the built server by hand,
 `npx @modelcontextprotocol/inspector node dist/cli.js` opens it in the MCP Inspector.
 
 ## Links

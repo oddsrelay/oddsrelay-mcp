@@ -1,0 +1,67 @@
+{
+  "manifest_version": "0.3",
+  "name": "oddsrelay",
+  "display_name": "OddsRelay",
+  "version": "0.1.0",
+  "description": "Read-only MCP server for OddsRelay odds data, with a token cap on every call that spends tokens.",
+  "long_description": "Gives your assistant read access to OddsRelay: matched boards, the prices for one event, and the sport, event, bookmaker and coverage lists behind them. Nothing it does writes anything. The two tools that spend tokens ask the API for a price first and refuse any call priced above `max_tokens`, so an assistant cannot run down your token balance by accident.",
+  "author": {
+    "name": "OddsRelay",
+    "email": "hello@oddsrelay.io",
+    "url": "https://oddsrelay.io"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oddsrelay/oddsrelay-mcp"
+  },
+  "homepage": "https://oddsrelay.io",
+  "documentation": "https://oddsrelay.io/docs",
+  "support": "https://github.com/oddsrelay/oddsrelay-mcp/issues",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/cli.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/cli.js"],
+      "env": {
+        "ODDSRELAY_KEY": "${user_config.api_key}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "sports", "description": "Lists sport and competition keys. Costs no tokens." },
+    { "name": "events", "description": "Lists the events of one sport with their ids. Costs no tokens." },
+    { "name": "bookmakers", "description": "Lists the bookmaker and exchange keys. Costs no tokens." },
+    {
+      "name": "coverage",
+      "description": "Shows which bookmakers carry which sports on one product, and its market keys. Costs no tokens."
+    },
+    {
+      "name": "odds",
+      "description": "Reads a matched board for one sport at the bookmakers you name. Priced first, refused above max_tokens."
+    },
+    {
+      "name": "event_odds",
+      "description": "Reads one event's prices at each bookmaker and exchange carrying it. Priced first, refused above max_tokens."
+    },
+    { "name": "usage", "description": "Shows this key's plan, token balance, reset time and scope. Costs no tokens." }
+  ],
+  "keywords": ["odds", "odds-api", "sports-odds", "bookmakers", "oddsrelay"],
+  "license": "MIT",
+  "privacy_policies": ["https://oddsrelay.io/privacy"],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "API key",
+      "description": "Your OddsRelay API key",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}

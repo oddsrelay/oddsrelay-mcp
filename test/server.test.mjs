@@ -279,3 +279,15 @@ test("package.json, server.json and the server agree on name and version", () =>
     [["ODDSRELAY_KEY", true]],
   );
 });
+
+test("the MCPB manifest matches package.json and the server's tools, and hands the key over as ODDSRELAY_KEY", async () => {
+  const pkg = read("../package.json");
+  const mcpb = read("../manifest.json");
+  assert.equal(mcpb.version, pkg.version);
+  assert.equal(mcpb.server.entry_point, pkg.bin["oddsrelay-mcp"]);
+  const { tools } = await (await connect(stub(() => [500, {}]).fetch)).listTools();
+  assert.deepEqual(mcpb.tools.map((t) => t.name).sort(), tools.map((t) => t.name).sort());
+  assert.equal(mcpb.server.mcp_config.env.ODDSRELAY_KEY, "${user_config.api_key}");
+  assert.equal(mcpb.user_config.api_key.sensitive, true);
+  assert.equal(mcpb.user_config.api_key.required, true);
+});

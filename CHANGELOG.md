@@ -16,3 +16,5 @@ First version, built on the `oddsrelay` client and the OddsRelay API's OpenAPI d
 - API errors returned as tool errors with the error code and, where sent, the accepted values.
 - The key read from `ODDSRELAY_KEY` only, and hidden from every reply and error.
 - `server.json` for the MCP registry, as `io.github.oddsrelay/oddsrelay-mcp`.
+- `manifest.json` for an MCP Bundle, and `npm run bundle` to build `oddsrelay-mcp.mcpb`: a one-click install in
+  Claude Desktop that asks for the key in a masked field.

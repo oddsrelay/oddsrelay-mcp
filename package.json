@@ -37,7 +37,8 @@
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node --test test/server.test.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "bundle": "npm run build && npx --yes --before=2026-09-25 @anthropic-ai/mcpb@2.1.2 pack . oddsrelay-mcp.mcpb"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",

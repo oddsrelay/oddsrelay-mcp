@@ -1,0 +1,15 @@
+# Only what the server needs at run time goes into the bundle: everything at the top is left out except these.
+/*
+!/dist
+!/node_modules
+!/manifest.json
+!/package.json
+!/README.md
+!/LICENSE
+
+# devDependencies stay out of node_modules in the bundle.
+# ponytail: listed by hand; a new devDependency (and anything it pulls in) needs a line here.
+node_modules/typescript
+node_modules/@types
+node_modules/undici-types
+node_modules/.package-lock.json
