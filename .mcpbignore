@@ -8,7 +8,7 @@
 !/LICENSE
 
 # devDependencies stay out of node_modules in the bundle.
-# ponytail: listed by hand; a new devDependency (and anything it pulls in) needs a line here.
+# Listed by hand: add a line for each new devDependency and for what it pulls in. A test checks the direct ones.
 node_modules/typescript
 node_modules/@types
 node_modules/undici-types

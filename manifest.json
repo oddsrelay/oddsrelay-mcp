@@ -4,7 +4,7 @@
   "display_name": "OddsRelay",
   "version": "0.1.0",
   "description": "Read-only MCP server for OddsRelay odds data, with a token cap on every call that spends tokens.",
-  "long_description": "Gives your assistant read access to OddsRelay: matched boards, the prices for one event, and the sport, event, bookmaker and coverage lists behind them. Nothing it does writes anything. The two tools that spend tokens ask the API for a price first and refuse any call priced above `max_tokens`, so an assistant cannot run down your token balance by accident.",
+  "long_description": "Gives your assistant read access to OddsRelay: matched boards, the prices for one event, and the sport, event, bookmaker and coverage lists behind them. It writes nothing. The two tools that spend tokens ask the API for a price first and refuse any call priced above `max_tokens`, so an assistant cannot run down your token balance by accident.",
   "author": {
     "name": "OddsRelay",
     "email": "hello@oddsrelay.io",
@@ -42,7 +42,7 @@
     },
     {
       "name": "event_odds",
-      "description": "Reads one event's prices at each bookmaker and exchange carrying it. Priced first, refused above max_tokens."
+      "description": "Reads one event's prices at each bookmaker and exchange carrying it. Needs a key that can read raw odds. Priced first, refused above max_tokens."
     },
     { "name": "usage", "description": "Shows this key's plan, token balance, reset time and scope. Costs no tokens." }
   ],

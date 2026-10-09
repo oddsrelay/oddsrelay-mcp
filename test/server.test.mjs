@@ -291,3 +291,11 @@ test("the MCPB manifest matches package.json and the server's tools, and hands t
   assert.equal(mcpb.user_config.api_key.sensitive, true);
   assert.equal(mcpb.user_config.api_key.required, true);
 });
+
+test("every devDependency is kept out of the bundle by .mcpbignore", () => {
+  const ignored = readFileSync(new URL("../.mcpbignore", import.meta.url), "utf8").split("\n").map((l) => l.trim());
+  for (const dep of Object.keys(read("../package.json").devDependencies)) {
+    const scope = dep.split("/")[0];
+    assert.ok(ignored.includes(`node_modules/${dep}`) || ignored.includes(`node_modules/${scope}`), dep);
+  }
+});
