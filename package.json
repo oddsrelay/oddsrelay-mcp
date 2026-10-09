@@ -41,7 +41,7 @@
     "bundle": "npm run build && npx --yes --before=2026-09-25 @anthropic-ai/mcpb@2.1.2 pack . oddsrelay-mcp.mcpb"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.1",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "oddsrelay": "^0.1.0",
     "zod": "4.6.5"
   },
