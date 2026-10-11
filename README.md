@@ -2,7 +2,7 @@
 
 An MCP server that gives an AI assistant read access to OddsRelay: matched boards, the prices for one event, and
 the sport, event, bookmaker and coverage lists behind them. It is read-only, and every call that spends tokens is
-priced first and refused above a cap, so an assistant cannot run down your token balance by accident.
+priced first and refused above a per-call cap (`max_tokens`). The assistant is told to ask you before raising it.
 
 It works with Claude Desktop, Claude Code, Cursor and any other client that starts MCP servers over stdio, and it is
 built on the [`oddsrelay`](https://www.npmjs.com/package/oddsrelay) TypeScript client.
