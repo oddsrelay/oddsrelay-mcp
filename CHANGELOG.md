@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 (2026-10-12)
+
+README, package page and bundle text only: the code is the same as 0.1.0, apart from the version it reports.
+
+- A "Get a key" section: where to sign up, and what the Free plan gives you.
+- Links to the OddsRelay clients, the Google Sheets template, the examples and the docs.
+- The README and the bundle's description say `max_tokens` caps each call, and that the assistant is told to ask
+  you before raising it.
+
 ## 0.1.0 (2026-10-09)
 
 First version, built on the `oddsrelay` client and the OddsRelay API's OpenAPI document `2026-07-08`.

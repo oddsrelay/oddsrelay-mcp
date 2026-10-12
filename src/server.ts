@@ -5,7 +5,7 @@ import type { FetchLike, Page, Result, Tokens } from "oddsrelay";
 import { z } from "zod";
 
 /** This package's version. package.json, server.json and manifest.json carry it too; tests keep them equal. */
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 /** The most tokens a call may spend when the assistant passes no max_tokens. */
 const DEFAULT_MAX_TOKENS = 500;

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "oddsrelay",
   "display_name": "OddsRelay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Read-only MCP server for OddsRelay odds data, with a token cap on every call that spends tokens.",
   "long_description": "Gives your assistant read access to OddsRelay: matched boards, the prices for one event, and the sport, event, bookmaker and coverage lists behind them. It writes nothing. The two tools that spend tokens ask the API for a price first and refuse any call priced above `max_tokens`, a cap on each call. The assistant is told to ask you before raising it.",
   "author": {
