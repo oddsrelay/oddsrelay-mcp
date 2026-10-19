@@ -67,6 +67,12 @@ That calls `coverage`, which costs no tokens. Then:
 
 The assistant finds the bookmaker keys with `bookmakers`, then calls `odds`, which is priced before it runs.
 
+## Agent Skill
+
+[`skills/oddsrelay/SKILL.md`](skills/oddsrelay/SKILL.md) is an Agent Skill for assistants that load skills (Claude
+Code, Claude.ai and other skill-aware clients): when to reach for OddsRelay, how to quote a call before it spends
+tokens, and how to read the boards. It works with this server or with plain HTTPS.
+
 ## Tools
 
 | Tool | What it reads | Tokens |
