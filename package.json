@@ -1,6 +1,6 @@
 {
   "name": "oddsrelay-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "mcpName": "io.github.oddsrelay/oddsrelay-mcp",
   "description": "Read-only MCP server for OddsRelay odds data, with a token cap on every call that spends tokens.",
   "keywords": [

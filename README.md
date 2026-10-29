@@ -59,12 +59,11 @@ The key sits in that config file as plain text, so keep the file out of anything
 ### Gemini CLI
 
 ```sh
-gemini extensions install https://github.com/oddsrelay/oddsrelay-mcp --ref main
+gemini extensions install https://github.com/oddsrelay/oddsrelay-mcp
 ```
 
-Gemini CLI first looks for a release tagged `main`, finds none and offers to install with `git clone` instead: answer
-yes. It then asks for your API key, keeps it in your system keychain and passes it to the server as `ODDSRELAY_KEY`.
-The extension also loads the Agent Skill below.
+Gemini CLI installs the extension from the latest release, then asks for your API key, keeps it in your system
+keychain and passes it to the server as `ODDSRELAY_KEY`. The extension also loads the Agent Skill below.
 
 ## First questions
 

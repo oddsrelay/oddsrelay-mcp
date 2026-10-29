@@ -300,6 +300,11 @@ test("the Gemini CLI manifest matches package.json and asks for the key as ODDSR
   assert.deepEqual(gem.settings.map((s) => [s.envVar, s.sensitive]), [["ODDSRELAY_KEY", true]]);
 });
 
+test("CHANGELOG.md has an entry for package.json's version, which the release notes are made from", () => {
+  const changelog = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+  assert.ok(changelog.split("\n").some((l) => l.startsWith(`## ${read("../package.json").version} `)));
+});
+
 test("every devDependency is kept out of the bundle by .mcpbignore", () => {
   const ignored = readFileSync(new URL("../.mcpbignore", import.meta.url), "utf8").split("\n").map((l) => l.trim());
   for (const dep of Object.keys(read("../package.json").devDependencies)) {

@@ -2,6 +2,7 @@
 # Trusted publishing needs npm 11.5.1 or later. Early Node 24 releases bundle an older npm, so check-latest makes
 # setup-node fetch the newest 24.x instead of using an older one cached on the runner.
 # npm adds provenance on its own under trusted publishing; --provenance just makes it explicit.
+# Then the github-release job makes the GitHub release, with the Claude Desktop bundle and the Gemini CLI extension.
 name: release
 
 on:
@@ -34,3 +35,51 @@ jobs:
           if [ -n "$(npm view "oddsrelay-mcp@${GITHUB_REF_NAME#v}" version 2> /dev/null)" ]; then echo "published=true" >> "$GITHUB_OUTPUT"; fi
       - if: steps.npm.outputs.published != 'true'
         run: npm publish --provenance --access public
+
+  # `gemini extensions install <repo>` reads the latest release: it takes a file named for the user's platform
+  # (darwin., linux. or win32.), else the release's only file, else the tag's source. The bundle as the only file
+  # would be taken for the extension and fail, so the extension (gemini-extension.json and the Agent Skill) goes up
+  # under the three platform names, the same archive each time.
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run bundle
+      - name: Gemini CLI extension archives
+        run: |
+          tar -czf darwin.oddsrelay.tar.gz gemini-extension.json skills README.md LICENSE
+          cp darwin.oddsrelay.tar.gz linux.oddsrelay.tar.gz
+          cp darwin.oddsrelay.tar.gz win32.oddsrelay.tar.gz
+      # GitHub shows each newline in release notes as a line break, so the entry's wrapped lines are joined back up.
+      - name: Release notes, from this version's CHANGELOG entry
+        run: |
+          {
+            echo 'Claude Desktop: download `oddsrelay-mcp.mcpb` below and open it. Claude Desktop asks for your API key in a masked field.'
+            echo
+            echo 'Gemini CLI: `gemini extensions install https://github.com/oddsrelay/oddsrelay-mcp` takes the darwin, linux or win32 archive for your system. All three hold the same extension.'
+            echo
+            echo 'Any other MCP client: `npx -y oddsrelay-mcp`, with your key in `ODDSRELAY_KEY`. Docs: https://oddsrelay.io/docs'
+            awk -v h="## ${GITHUB_REF_NAME#v} " '
+              index($0, h) == 1 { f = 1; found = 1; next }
+              /^## / { f = 0 }
+              !f { next }
+              /^$/ { if (p != "") print p; print ""; p = ""; next }
+              /^- / { if (p != "") print p; p = $0; next }
+              { sub(/^ +/, ""); p = (p == "" ? $0 : p " " $0) }
+              END { if (p != "") print p; exit !found }
+            ' CHANGELOG.md
+          } > notes.md
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" --title "oddsrelay-mcp ${GITHUB_REF_NAME#v}" --notes-file notes.md
+          oddsrelay-mcp.mcpb darwin.oddsrelay.tar.gz linux.oddsrelay.tar.gz win32.oddsrelay.tar.gz
