@@ -62,8 +62,9 @@ is documented at https://oddsrelay.io/docs and described by its OpenAPI file, ht
   so one cut off keeps its charge.
 - Pull only: no websocket, webhook or stream on the self-serve plans.
 - One region per key; the UK and Ireland is the one on sale.
-- The self-serve plans are for the account holder's own use. A product that shows the data to other people runs on
-  Enterprise (https://oddsrelay.io/pricing).
+- The paid self-serve plans are for personal use: one person using the data for themselves. Any business, even one
+  using the data only in-house, and any product that shows the data to other people runs on Enterprise
+  (https://oddsrelay.io/pricing). A business can try the data first on Free, the plan a new account starts on.
 - OddsRelay is a data supplier. It gives no tips and takes no bets: describe what the prices are, never what to bet.
 
 ## Get a key
