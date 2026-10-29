@@ -18,7 +18,7 @@ other people runs on Enterprise; a business can try the data on Free first.
 
 ## Set up
 
-You need an OddsRelay API key (Get a key, above). The server reads the key from `ODDSRELAY_KEY`. The bundle sets it for you; the other routes set it in your MCP client's config and need
+You need an OddsRelay API key (Get a key, above). The server reads the key from `ODDSRELAY_KEY`. The bundle and the Gemini CLI extension set it for you; the other routes set it in your MCP client's config and need
 Node 18 or later.
 
 ### Claude Desktop (one-click bundle)
@@ -55,6 +55,16 @@ Settings, Developer, Edit Config opens `claude_desktop_config.json`. Add the ser
 Add the same `mcpServers` block to `~/.cursor/mcp.json` (every project) or `.cursor/mcp.json` (one project).
 
 The key sits in that config file as plain text, so keep the file out of anything you commit.
+
+### Gemini CLI
+
+```sh
+gemini extensions install https://github.com/oddsrelay/oddsrelay-mcp --ref main
+```
+
+Gemini CLI first looks for a release tagged `main`, finds none and offers to install with `git clone` instead: answer
+yes. It then asks for your API key, keeps it in your system keychain and passes it to the server as `ODDSRELAY_KEY`.
+The extension also loads the Agent Skill below.
 
 ## First questions
 

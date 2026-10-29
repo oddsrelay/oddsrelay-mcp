@@ -292,6 +292,14 @@ test("the MCPB manifest matches package.json and the server's tools, and hands t
   assert.equal(mcpb.user_config.api_key.required, true);
 });
 
+test("the Gemini CLI manifest matches package.json and asks for the key as ODDSRELAY_KEY, by name only", () => {
+  const pkg = read("../package.json");
+  const gem = read("../gemini-extension.json");
+  assert.equal(gem.version, pkg.version);
+  assert.deepEqual(gem.mcpServers, { oddsrelay: { command: "npx", args: ["-y", pkg.name] } });
+  assert.deepEqual(gem.settings.map((s) => [s.envVar, s.sensitive]), [["ODDSRELAY_KEY", true]]);
+});
+
 test("every devDependency is kept out of the bundle by .mcpbignore", () => {
   const ignored = readFileSync(new URL("../.mcpbignore", import.meta.url), "utf8").split("\n").map((l) => l.trim());
   for (const dep of Object.keys(read("../package.json").devDependencies)) {

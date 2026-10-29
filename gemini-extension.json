@@ -1,0 +1,19 @@
+{
+  "name": "oddsrelay",
+  "version": "0.1.1",
+  "description": "Read-only MCP server for OddsRelay odds data, with a token cap on every call that spends tokens.",
+  "mcpServers": {
+    "oddsrelay": {
+      "command": "npx",
+      "args": ["-y", "oddsrelay-mcp"]
+    }
+  },
+  "settings": [
+    {
+      "name": "API key",
+      "description": "Your OddsRelay API key",
+      "envVar": "ODDSRELAY_KEY",
+      "sensitive": true
+    }
+  ]
+}
