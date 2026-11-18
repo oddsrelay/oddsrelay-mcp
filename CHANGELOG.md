@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-11-18)
 
 Three new tools, so an assistant can read every region OddsRelay serves, and the Agent Skill and README brought up to
 date.

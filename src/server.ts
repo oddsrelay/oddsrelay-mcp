@@ -5,7 +5,7 @@ import type { FetchLike, Page, Result, Tokens } from "oddsrelay";
 import { z } from "zod";
 
 /** This package's version. package.json, server.json and manifest.json carry it too; tests keep them equal. */
-export const VERSION = "0.1.2";
+export const VERSION = "0.2.0";
 
 /** The most tokens a call may spend when the assistant passes no max_tokens. */
 const DEFAULT_MAX_TOKENS = 500;
@@ -114,7 +114,7 @@ export function createServer(options: ServerOptions = {}): McpServer {
     {
       title: "Sports",
       description:
-        "Lists sport and competition keys (such as soccer or soccer_epl) for the sport filter of odds, raw_odds, " +
+        "Lists sport and competition keys (such as soccer or soccer_english_premier_league) for the sport filter of odds, raw_odds, " +
         "history and events. Serves every region, one region code a call. Costs no tokens. Paged: pass " +
         "next_cursor back as cursor.",
       inputSchema: { region, cursor, limit: limit("sports", 50) },
@@ -225,7 +225,7 @@ export function createServer(options: ServerOptions = {}): McpServer {
         "it would cost more than max_tokens.",
       inputSchema: {
         type: z.enum(BOARDS).describe("Which matched board"),
-        sport: key.describe("Which sport: soccer, or a competition key from the sports tool such as soccer_epl"),
+        sport: key.describe("Which sport: soccer, or a competition key from the sports tool such as soccer_english_premier_league"),
         bookmakers: keys(40).describe("Bookmaker keys from the bookmakers tool"),
         exchanges: keys(4).optional().describe("Exchange keys; left out, every exchange on the board"),
         markets: keys(20).optional().describe("Market keys such as h2h; left out, every market on the board"),
