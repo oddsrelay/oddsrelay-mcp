@@ -1,8 +1,10 @@
 # oddsrelay-mcp
 
-An MCP server that gives an AI assistant read access to OddsRelay: matched boards, the prices for one event, and
-the sport, event, bookmaker and coverage lists behind them. It is read-only, and every call that spends tokens is
-priced first and refused above a per-call cap (`max_tokens`). The assistant is told to ask you before raising it.
+An MCP server that gives an AI assistant read access to OddsRelay: each bookmaker's own prices (the raw board) and
+historical odds for the UK & Ireland and every other region OddsRelay serves, in-play prices included, the UK & Ireland
+matched boards, the prices for one event, and the sport, event, bookmaker, region and coverage lists behind them. It
+is read-only, and every call that spends tokens is priced first and refused above a per-call cap (`max_tokens`). The
+assistant is told to ask you before raising it.
 
 It works with Claude Desktop, Claude Code, Cursor and any other client that starts MCP servers over stdio, and it is
 built on the [`oddsrelay`](https://www.npmjs.com/package/oddsrelay) TypeScript client.
@@ -77,6 +79,17 @@ That calls `coverage`, which costs no tokens. Then:
 
 The assistant finds the bookmaker keys with `bookmakers`, then calls `odds`, which is priced before it runs.
 
+For a region outside the UK & Ireland, ask for raw prices:
+
+> Using OddsRelay, show the raw basketball prices in the US region, first five events, h2h only.
+
+The assistant finds the region code with `regions`, then calls `raw_odds`, priced first in the same way. And for
+historical odds:
+
+> Using OddsRelay, show yesterday's closing prices for soccer in the US region, first five events.
+
+That calls `history`.
+
 ## Agent Skill
 
 [`skills/oddsrelay/SKILL.md`](skills/oddsrelay/SKILL.md) is an Agent Skill for assistants that load skills (Claude
@@ -85,28 +98,49 @@ tokens, and how to read the boards. It works with this server or with plain HTTP
 
 ## Tools
 
-| Tool | What it reads | Tokens |
-|---|---|---|
-| `sports` | Sport and competition keys, paged | none |
-| `events` | The events of one sport, with their ids, paged | none |
-| `bookmakers` | Bookmaker and exchange keys | none |
-| `coverage` | Which bookmakers carry which sports on one product, and the product's market keys | none |
-| `odds` | A matched board (`standard`, `2up`, `dutching`, `each-way`, `extra-place` or `bog`) for one sport at the bookmakers you name | priced first, capped |
-| `event_odds` | One event's prices at each bookmaker and exchange carrying it, narrowed to the bookmakers and markets you name | priced first, capped |
-| `usage` | Your plan, token balance, reset time and key scope | none |
+| Tool | What it reads | Regions | Tokens |
+|---|---|---|---|
+| `sports` | Sport and competition keys, paged | every region | none |
+| `events` | The events of one sport, with their ids, paged | every region | none |
+| `bookmakers` | The bookmaker and exchange keys of one region | every region | none |
+| `regions` | The region codes your key reads | | none |
+| `coverage` | Which bookmakers carry which sports on one product, and the product's market keys | `raw` in every region; the matched products in the UK & Ireland | none |
+| `odds` | A matched board (`standard`, `2up`, `dutching`, `each-way`, `extra-place` or `bog`) for one sport at the bookmakers you name | UK & Ireland only | priced first, capped |
+| `raw_odds` | The raw board for one sport: each bookmaker's own prices, in play too with `in_play`, paged | every region; several international codes in one call | priced first, capped |
+| `event_odds` | One event's prices at each bookmaker and exchange carrying it, narrowed to the bookmakers and markets you name | every region | priced first, capped |
+| `history` | Historical odds for one sport: the raw board as it stood at a time you name (`snapshot`), or a day's opening and closing prices (`closing`), paged | every region | priced first, capped |
+| `usage` | Your plan, token balance, reset time, key scope and regions | | none |
+
+## Regions
+
+`regions` lists the codes your key reads: `uk` is the UK & Ireland, and every other code is an international region.
+Each tool takes one `region` code a call. `raw_odds` alone also takes several international codes joined by commas
+(`us,global`), read as one board and priced as their sum; `uk` is always asked alone. Leave `region` out and the API
+uses `uk`, or refuses with `region_required` and names the code to send.
+
+The matched boards (`odds`) and exchange prices are for the UK & Ireland only: in any other region `odds` is refused
+with `product_not_in_region`, and `raw_odds`, `event_odds` and `history` are the tools to use.
+
+`history` reads the UK & Ireland from 17 October 2026, with exchange prices beside the bookmakers' (`bookmakers_only`
+leaves them out), and each other region, bookmakers only, from 16 November 2026. A date before a region's first day is
+refused with `date_out_of_range` and the earliest date it holds. A day is added the night after it ends, so today's
+prices come from `raw_odds`. The server does not wrap one event's price changes or the bulk history files: the
+[docs](https://oddsrelay.io/docs) cover those.
 
 ## The token cap
 
-`odds` and `event_odds` take a `max_tokens` argument with a small default. Before each call the server asks the
+`odds`, `raw_odds`, `event_odds` and `history` take a `max_tokens` argument with a small default. Before each call the server asks the
 API what the call would cost (a quote, which spends nothing). If it would cost more than `max_tokens`, the server
 makes no call, spends nothing and tells the assistant the price, so the assistant can narrow the filters or ask you
 before it tries again with a higher `max_tokens`.
 
-`odds` always takes one sport and the bookmakers you name, so each call stays narrow. The cost is set by the filters
-you send; cutting the reply to `limit` rows does not change it. Every reply from these two tools carries `tokens`:
-what the call cost and what is left.
+`odds` always takes one sport and the bookmakers you name, and `raw_odds` and `history` one sport, so each call stays
+narrow. On `odds` and `event_odds` the cost is set by the filters you send; cutting the reply to `limit` rows does not
+change it. `raw_odds` and `history` are paged: each call asks the API for `limit` events and each page is priced, and
+a page too long to show whole is priced again when the assistant goes on from it, so name the markets and bookmakers
+you want. Every reply from these four tools carries `tokens`: what the call cost and what is left.
 
-Both tools only read, but their MCP annotations mark them as calls with a cost rather than read-only, so a client
+All four only read, but their MCP annotations mark them as calls with a cost rather than read-only, so a client
 that asks before such calls will ask you each time. `event_odds` reads the raw board, so it needs a key that can read raw odds.
 
 ## Replies

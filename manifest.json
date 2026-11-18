@@ -4,7 +4,7 @@
   "display_name": "OddsRelay",
   "version": "0.1.2",
   "description": "Read-only MCP server for OddsRelay odds data, with a token cap on every call that spends tokens.",
-  "long_description": "Gives your assistant read access to OddsRelay: matched boards, the prices for one event, and the sport, event, bookmaker and coverage lists behind them. It writes nothing. The two tools that spend tokens ask the API for a price first and refuse any call priced above `max_tokens`, a cap on each call. The assistant is told to ask you before raising it.",
+  "long_description": "Gives your assistant read access to OddsRelay: each bookmaker's own prices (the raw board) and historical odds in every region OddsRelay serves, the UK & Ireland matched boards, the prices for one event, and the sport, event, bookmaker, region and coverage lists behind them. It writes nothing. The tools that spend tokens ask the API for a price first and refuse any call priced above `max_tokens`, a cap on each call. The assistant is told to ask you before raising it.",
   "author": {
     "name": "OddsRelay",
     "email": "hello@oddsrelay.io",
@@ -29,22 +29,31 @@
     }
   },
   "tools": [
-    { "name": "sports", "description": "Lists sport and competition keys. Costs no tokens." },
-    { "name": "events", "description": "Lists the events of one sport with their ids. Costs no tokens." },
-    { "name": "bookmakers", "description": "Lists the bookmaker and exchange keys. Costs no tokens." },
+    { "name": "sports", "description": "Lists sport and competition keys. Every region. Costs no tokens." },
+    { "name": "events", "description": "Lists the events of one sport with their ids. Every region. Costs no tokens." },
+    { "name": "bookmakers", "description": "Lists the bookmaker and exchange keys of one region. Every region. Costs no tokens." },
+    { "name": "regions", "description": "Lists the region codes this key reads. Costs no tokens." },
     {
       "name": "coverage",
-      "description": "Shows which bookmakers carry which sports on one product, and its market keys. Costs no tokens."
+      "description": "Shows which bookmakers carry which sports on one product, and its market keys. Raw in every region, the matched products in the UK & Ireland only. Costs no tokens."
     },
     {
       "name": "odds",
-      "description": "Reads a matched board for one sport at the bookmakers you name. Priced first, refused above max_tokens."
+      "description": "Reads a matched board for one sport at the bookmakers you name. UK & Ireland only. Priced first, refused above max_tokens."
+    },
+    {
+      "name": "raw_odds",
+      "description": "Reads each bookmaker's own prices for one sport, in play too when asked. Every region: one code, or several international codes in one call. Priced first, refused above max_tokens."
     },
     {
       "name": "event_odds",
-      "description": "Reads one event's prices at each bookmaker and exchange carrying it. Needs a key that can read raw odds. Priced first, refused above max_tokens."
+      "description": "Reads one event's prices at each bookmaker and exchange carrying it. Every region. Needs a key that can read raw odds. Priced first, refused above max_tokens."
     },
-    { "name": "usage", "description": "Shows this key's plan, token balance, reset time and scope. Costs no tokens." }
+    {
+      "name": "history",
+      "description": "Reads historical odds for one sport: the board at a time you name, or a day's opening and closing prices. Every region, one code a call. Priced first, refused above max_tokens."
+    },
+    { "name": "usage", "description": "Shows this key's plan, token balance, reset time, scope and regions. Costs no tokens." }
   ],
   "keywords": ["odds", "odds-api", "sports-odds", "bookmakers", "oddsrelay"],
   "license": "MIT",

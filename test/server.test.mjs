@@ -85,12 +85,14 @@ const rawEvent = {
 
 const oddsArgs = { type: "standard", sport: "soccer", bookmakers: ["ladbrokes"] };
 
-test("lists the seven tools: max_tokens and no read-only mark on the two that spend", async () => {
+const SPENDING = ["event_odds", "history", "odds", "raw_odds"];
+
+test("lists the ten tools: max_tokens and no read-only mark on the four that spend", async () => {
   const client = await connect(stub(() => [500, {}]).fetch);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["bookmakers", "coverage", "event_odds", "events", "odds", "sports", "usage"]);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["bookmakers", "coverage", "event_odds", "events", "history", "odds", "raw_odds", "regions", "sports", "usage"]);
   for (const t of tools) {
-    const spends = t.name === "odds" || t.name === "event_odds";
+    const spends = SPENDING.includes(t.name);
     assert.equal(t.annotations?.readOnlyHint, !spends, t.name);
     if (spends) assert.equal(t.annotations?.destructiveHint, false, t.name);
     assert.equal("max_tokens" in (t.inputSchema.properties ?? {}), spends, t.name);
@@ -179,6 +181,124 @@ test("paged tools reach every row when limit cuts a page short", async () => {
   }
 });
 
+/** A raw board page of n events, as the raw route and the history routes send one. */
+function rawBoard(n, next = null, region = "us") {
+  const meta = { feed_type: "raw", region, odds_format: "decimal", processed_at: "2026-11-18T00:00:00Z", count: n, version: "v2", next_cursor: next, total: n, board_version: 1 };
+  return { meta, data: Array.from({ length: n }, (_, i) => ({ ...rawEvent, id: `or_evt_${i}` })) };
+}
+
+test("every tool's description says which regions it serves", async () => {
+  const { tools } = await (await connect(stub(() => [500, {}]).fetch)).listTools();
+  for (const t of tools) assert.match(t.description, /region/, t.name);
+  const about = Object.fromEntries(tools.map((t) => [t.name, t.description]));
+  for (const name of ["sports", "events", "bookmakers", "raw_odds", "event_odds", "history"]) assert.match(about[name], /every region/, name);
+  for (const name of ["odds", "coverage", "regions", "bookmakers"]) assert.match(about[name], /UK & Ireland/, name);
+  assert.match(about.odds, /product_not_in_region/);
+});
+
+test("raw_odds sends a region list, the filters and in-play as the API names them, quoting first", async () => {
+  const { fetch, calls } = stub((u) => (u.searchParams.get("quote") === "true" ? quote(40) : [200, rawBoard(3, "P2"), spent]));
+  const client = await connect(fetch);
+  const res = await call(client, "raw_odds", { sport: "basketball", region: "us,global", bookmakers: ["fanduel"], markets: ["h2h"], in_play: "include", limit: 3 });
+  assert.equal(res.isError, false);
+  assert.equal(calls.length, 2, "a quote, then the call");
+  assert.match(calls[0].url.search, /region=us,global/, "the list goes as one region parameter");
+  for (const c of calls) {
+    assert.equal(c.url.pathname, "/v2/odds/raw");
+    const q = c.url.searchParams;
+    assert.deepEqual(
+      [q.get("region"), q.get("sports"), q.get("bookmakers"), q.get("markets"), q.get("inPlay"), q.get("limit")],
+      ["us,global", "basketball", "fanduel", "h2h", "include", "3"],
+    );
+  }
+  assert.equal(res.body.events.length, 3);
+  assert.equal(res.body.next_cursor, "P2");
+  assert.equal("next_cursor" in res.body.meta, false);
+  assert.deepEqual(res.body.tokens, { cost: 12, remaining: 988 });
+
+  await call(client, "raw_odds", { sport: "basketball", region: "us", cursor: "P2" });
+  assert.equal(calls.at(-1).url.searchParams.get("cursor"), "P2");
+
+  const dear = stub((u) => (u.searchParams.get("quote") === "true" ? quote(900000) : [200, rawBoard(1)]));
+  const refused = await call(await connect(dear.fetch), "raw_odds", { sport: "soccer", region: "za" });
+  assert.equal(refused.body.error, "over_max_tokens");
+  assert.equal(dear.calls.length, 1, "only the quote was requested");
+});
+
+test("raw_odds refuses a region that is not lowercase codes joined by commas, before any request", async () => {
+  const { fetch, calls } = stub(() => [200, rawBoard(1)]);
+  const client = await connect(fetch);
+  for (const region of ["US", "us, global", "us,", ""]) {
+    const res = await client.callTool({ name: "raw_odds", arguments: { sport: "soccer", region } }).catch(() => ({ isError: true }));
+    assert.equal(res.isError, true, JSON.stringify(region));
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("history reads the snapshot and closing routes for one region, quoting first", async () => {
+  const { fetch, calls } = stub((u) => (u.searchParams.get("quote") === "true" ? quote(40) : [200, rawBoard(2, "N2"), spent]));
+  const client = await connect(fetch);
+
+  const snap = await call(client, "history", { kind: "snapshot", date: "2026-11-17T12:00:00Z", sport: "soccer", region: "us", bookmakers: ["fanduel"], bookmakers_only: true });
+  assert.equal(snap.isError, false);
+  assert.deepEqual(calls.map((c) => [c.url.pathname, c.url.searchParams.get("quote")]), [["/v2/historical/odds/raw", "true"], ["/v2/historical/odds/raw", null]]);
+  const q = calls[1].url.searchParams;
+  assert.deepEqual(
+    [q.get("date"), q.get("sports"), q.get("region"), q.get("bookmakers"), q.get("bookmakersOnly")],
+    ["2026-11-17T12:00:00Z", "soccer", "us", "fanduel", "true"],
+  );
+  assert.equal(calls[1].headers.Authorization, `Bearer ${KEY}`);
+  assert.equal(snap.body.events.length, 2);
+  assert.equal(snap.body.next_cursor, "N2");
+  assert.deepEqual(snap.body.tokens, { cost: 12, remaining: 988 });
+
+  await call(client, "history", { kind: "closing", date: "2026-11-17", sport: "soccer", limit: 100, cursor: "N2" });
+  const last = calls.at(-1).url;
+  assert.equal(last.pathname, "/v2/historical/closing");
+  assert.deepEqual([last.searchParams.get("date"), last.searchParams.get("limit"), last.searchParams.get("cursor")], ["2026-11-17", "50", "N2"]);
+  assert.equal(last.searchParams.get("region"), null, "left out, the API picks the region");
+});
+
+test("history passes on the archive's earliest date when a date is before it, and its cap refuses a dear call", async () => {
+  const early = { error: { code: "date_out_of_range", message: "before the archive", earliest: "2026-11-16T00:00:00.000Z" } };
+  const res = await call(await connect(stub(() => [400, early]).fetch), "history", { kind: "snapshot", date: "2026-11-01T00:00:00Z", sport: "soccer", region: "us" });
+  assert.equal(res.isError, true);
+  assert.deepEqual([res.body.error, res.body.earliest], ["date_out_of_range", "2026-11-16T00:00:00.000Z"]);
+
+  const dear = stub((u) => (u.searchParams.get("quote") === "true" ? quote(900000) : [200, rawBoard(1)]));
+  const refused = await call(await connect(dear.fetch), "history", { kind: "closing", date: "2026-11-17", sport: "soccer" });
+  assert.equal(refused.body.error, "over_max_tokens");
+  assert.equal(dear.calls.length, 1);
+});
+
+test("a priced page cut for size goes on from its first event not shown, and says that call is priced again", async () => {
+  const wide = rawBoard(3, "P2");
+  wide.data.forEach((e, i) => (e.home_team = `${i}`.padEnd(20000, "x")));
+  const { fetch, calls } = stub((u) => (u.searchParams.get("quote") === "true" ? quote(10) : [200, wide]));
+  const client = await connect(fetch);
+  const first = await call(client, "raw_odds", { sport: "soccer", region: "us", limit: 3 });
+  assert.equal(first.body.events.length, 1);
+  assert.match(first.body.more, /^2 more events on this page not shown: pass next_cursor back as cursor \(that call is priced again\)/);
+  const next = await call(client, "raw_odds", { sport: "soccer", region: "us", limit: 3, cursor: first.body.next_cursor });
+  assert.equal(calls.at(-1).url.searchParams.get("cursor"), null, "the same API page");
+  assert.equal(next.body.events[0].id, "or_evt_1");
+});
+
+test("bookmakers and event_odds pass the region on, event_odds in-play too, and regions lists the key's codes", async () => {
+  const regions = { version: "v2", default_region: "uk", regions: [{ code: "uk" }, { code: "us" }] };
+  const { fetch, calls } = stub((u) => {
+    if (u.pathname === "/v2/regions") return [200, regions];
+    if (u.pathname === "/v2/bookmakers") return [200, { meta: {}, data: [{ key: "fanduel" }] }];
+    return u.searchParams.get("quote") === "true" ? quote(10) : [200, rawEvent];
+  });
+  const client = await connect(fetch);
+  assert.deepEqual((await call(client, "bookmakers", { region: "us" })).body.venues, [{ key: "fanduel" }]);
+  assert.equal(calls.at(-1).url.searchParams.get("region"), "us");
+  await call(client, "event_odds", { id: "or_evt_1", region: "us", in_play: "include" });
+  assert.deepEqual([calls.at(-1).url.searchParams.get("region"), calls.at(-1).url.searchParams.get("inPlay")], ["us", "include"]);
+  assert.deepEqual((await call(client, "regions")).body, regions);
+});
+
 test("event_odds narrows the reply to the named bookmakers and markets", async () => {
   const { fetch } = stub((u) => (u.searchParams.get("quote") === "true" ? quote(10) : [200, rawEvent]));
   const res = await call(await connect(fetch), "event_odds", { id: "or_evt_1", bookmakers: ["betfred", "betfair_exchange"], markets: ["h2h"], limit: 1 });
@@ -234,6 +354,9 @@ test("the key never appears in any tool output or error", async () => {
     ["coverage", {}],
     ["odds", oddsArgs],
     ["event_odds", { id: "or_evt_1" }],
+    ["raw_odds", { sport: "soccer", region: "us,global" }],
+    ["history", { kind: "closing", date: "2026-11-16", sport: "soccer", region: "us" }],
+    ["regions", {}],
     ["usage", {}],
   ];
   const client = await connect(stub(echo).fetch);

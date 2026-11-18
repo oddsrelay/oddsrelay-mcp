@@ -14,11 +14,13 @@ const DEFAULT_MAX_TOKENS = 500;
 const REPLY_BUDGET = 30_000;
 
 const INSTRUCTIONS =
-  "Read-only tools for the OddsRelay odds API. sports, events, bookmakers, coverage and usage cost no tokens. " +
-  "odds and event_odds spend tokens from the user's account: each asks the API for a price first and refuses " +
-  "when that price is above max_tokens, so nothing is spent past that limit. Look up keys with sports and " +
-  "bookmakers before calling odds, keep filters narrow, and ask the user before calling again with a higher " +
-  "max_tokens.";
+  "Read-only tools for the OddsRelay odds API. sports, events, bookmakers, regions, coverage and usage cost no " +
+  "tokens. odds, raw_odds, event_odds and history spend tokens from the user's account: each asks the API for a " +
+  "price first and refuses when that price is above max_tokens, so nothing is spent past that limit. Regions: " +
+  "raw_odds, event_odds, history and the lists serve every region the regions tool names; odds (the matched " +
+  "boards) and exchange prices are for the UK & Ireland (region uk) only, so outside uk read prices with " +
+  "raw_odds. Look up keys with sports and bookmakers in the same region before calling, keep filters narrow, and " +
+  "ask the user before calling again with a higher max_tokens.";
 
 const NO_KEY = {
   error: "missing_key",
@@ -33,10 +35,34 @@ const SPENDS = { readOnlyHint: false, destructiveHint: false, idempotentHint: fa
 
 const BOARDS = ["standard", "2up", "dutching", "each-way", "extra-place", "bog"] as const;
 
+const RAW_PATH = "/v2/odds/raw";
+// The history routes the history tool reads. Both take the raw board's filters, paging and quote.
+const HISTORY = { snapshot: "/v2/historical/odds/raw", closing: "/v2/historical/closing" } as const;
+/** The closing route's largest page. */
+const CLOSING_PAGE = 50;
+
 // Every key the API hands out (sports, venues, markets) fits this; a comma never does, so one value stays one value.
 const key = z.string().regex(/^[a-z0-9_.-]+$/, "a lowercase key such as soccer or william_hill");
 const keys = (max: number) => z.array(key).min(1).max(max);
-const region = key.optional().describe("Region code. Left out, the API uses uk.");
+const region = key
+  .optional()
+  .describe(
+    "One region code from the regions tool, such as uk or us. Left out, the API uses uk, or refuses with " +
+      "region_required and names the code to send.",
+  );
+const regionList = z
+  .string()
+  .regex(/^[a-z0-9_-]+(,[a-z0-9_-]+)*$/, "one lowercase region code, or codes joined by commas with no spaces, such as us,global")
+  .optional()
+  .describe(
+    "One region code, or several international codes joined by commas (us,global), read as one board and priced " +
+      "as their sum. uk is always asked alone. Left out, the API uses uk, or refuses with region_required and " +
+      "names the code to send.",
+  );
+const inPlay = z
+  .enum(["exclude", "include", "only"])
+  .optional()
+  .describe("exclude (the default): pre-match events only. include: in-play events too. only: in-play events alone.");
 const time = z.string().optional();
 const cursor = z.string().optional().describe("next_cursor from the previous reply, with the same other arguments");
 const limit = (rows: string, byDefault: number) =>
@@ -67,10 +93,15 @@ export function createServer(options: ServerOptions = {}): McpServer {
   // A fresh client per call, so no ETag is sent and a repeat call never comes back as a 304 without data.
   // ponytail: repeats are charged again; keep one client plus a reply cache if repeat calls turn out to matter.
   // keyed false sends no key at all (an empty apiKey makes the client keyless).
-  async function run(work: (client: OddsRelay) => Promise<unknown>, keyed = true): Promise<CallToolResult> {
+  // ponytail: the oddsrelay client wraps no history route yet, so with historyPath set its raw() call is sent to
+  // that path instead (same filters, paging, quote, retries and errors). Use the client's own history methods once
+  // it has them.
+  async function run(work: (client: OddsRelay) => Promise<unknown>, keyed = true, historyPath?: string): Promise<CallToolResult> {
     if (keyed && !apiKey) return reply(NO_KEY, true);
+    const send: FetchLike = options.fetch ?? ((url, init) => fetch(url, init));
+    const fetchAt: FetchLike = historyPath ? (url, init) => send(url.replace(RAW_PATH, historyPath), init) : send;
     try {
-      return reply(await work(new OddsRelay({ apiKey: keyed ? apiKey : "", fetch: options.fetch })));
+      return reply(await work(new OddsRelay({ apiKey: keyed ? apiKey : "", fetch: fetchAt })));
     } catch (err) {
       return reply(explain(err), true);
     }
@@ -83,8 +114,9 @@ export function createServer(options: ServerOptions = {}): McpServer {
     {
       title: "Sports",
       description:
-        "Lists sport and competition keys (such as soccer or soccer_epl) for the sport filter of odds and events. " +
-        "Costs no tokens. Paged: pass next_cursor back as cursor.",
+        "Lists sport and competition keys (such as soccer or soccer_epl) for the sport filter of odds, raw_odds, " +
+        "history and events. Serves every region, one region code a call. Costs no tokens. Paged: pass " +
+        "next_cursor back as cursor.",
       inputSchema: { region, cursor, limit: limit("sports", 50) },
       annotations: READ_ONLY,
     },
@@ -100,8 +132,8 @@ export function createServer(options: ServerOptions = {}): McpServer {
     {
       title: "Events",
       description:
-        "Lists the events of one sport with their ids, for event_odds. Costs no tokens. " +
-        "Paged: pass next_cursor back as cursor.",
+        "Lists the events of one sport with their ids, for event_odds. Serves every region, one region code a " +
+        "call. Costs no tokens. Paged: pass next_cursor back as cursor.",
       inputSchema: {
         sport: key.describe("Which sport: tennis, or a competition key from the sports tool"),
         region,
@@ -130,10 +162,26 @@ export function createServer(options: ServerOptions = {}): McpServer {
     "bookmakers",
     {
       title: "Bookmakers",
-      description: "Lists the bookmaker and exchange keys that odds, event_odds and coverage take. Costs no tokens.",
+      description:
+        "Lists the bookmaker and exchange keys of one region, the values odds, raw_odds, event_odds, history and " +
+        "coverage take. Serves every region, one region code a call; the exchanges are in the UK & Ireland (uk) " +
+        "only. Costs no tokens.",
+      inputSchema: { region },
       annotations: READ_ONLY,
     },
-    () => run(async (c) => ({ venues: body(await c.bookmakers()).data })),
+    (a) => run(async (c) => ({ venues: body(await c.bookmakers({ region: a.region })).data })),
+  );
+
+  server.registerTool(
+    "regions",
+    {
+      title: "Regions",
+      description:
+        "Lists the region codes this key reads, with each region's name and whether it has matched boards and " +
+        "exchanges (the UK & Ireland, uk, only). Costs no tokens.",
+      annotations: READ_ONLY,
+    },
+    () => run(async (c) => body(await c.regions())),
   );
 
   server.registerTool(
@@ -142,7 +190,8 @@ export function createServer(options: ServerOptions = {}): McpServer {
       title: "Coverage",
       description:
         "Shows which bookmakers carry which sports on one product, and that product's market keys (the values " +
-        "odds takes as markets). Filter by bookmaker or sport. Costs no tokens and sends no key.",
+        "odds and raw_odds take as markets). Filter by bookmaker or sport. Product raw is served in every region; " +
+        "the six matched products in the UK & Ireland (region uk) only. Costs no tokens and sends no key.",
       inputSchema: {
         product: key.default("standard").describe("standard, 2up, dutching, each-way, extra-place, bog or raw"),
         bookmaker: key.optional().describe("Only this bookmaker or exchange key"),
@@ -171,7 +220,9 @@ export function createServer(options: ServerOptions = {}): McpServer {
       title: "Odds",
       description:
         "Reads a matched board (bookmaker back prices with exchange lay prices) for one sport at the bookmakers " +
-        "you name. Spends tokens: priced first, and refused when it would cost more than max_tokens.",
+        "you name. The matched boards are for the UK & Ireland (region uk) only: any other region is refused with " +
+        "product_not_in_region, so read prices there with raw_odds. Spends tokens: priced first, and refused when " +
+        "it would cost more than max_tokens.",
       inputSchema: {
         type: z.enum(BOARDS).describe("Which matched board"),
         sport: key.describe("Which sport: soccer, or a competition key from the sports tool such as soccer_epl"),
@@ -204,18 +255,113 @@ export function createServer(options: ServerOptions = {}): McpServer {
   );
 
   server.registerTool(
+    "raw_odds",
+    {
+      title: "Raw odds",
+      description:
+        "Reads the raw board: each bookmaker's own prices for the events of one sport, in play too when in_play " +
+        "asks. Serves every region: region takes one code, or several international codes joined by commas " +
+        "(us,global) read as one board; uk is asked alone, and exchange prices are in uk only. Name markets and " +
+        "bookmakers to keep the reply short. Spends tokens: priced first, and refused when it would cost more than " +
+        "max_tokens. Paged: pass next_cursor back as cursor within five minutes; each page is priced.",
+      inputSchema: {
+        sport: key.describe("Which sport: soccer, or a competition key from the sports tool"),
+        region: regionList,
+        bookmakers: keys(40).optional().describe("Only these bookmaker or exchange keys, from the bookmakers tool for the region"),
+        markets: keys(20).optional().describe("Only these market keys, such as h2h; coverage lists product raw's keys"),
+        in_play: inPlay,
+        commence_from: time.describe("Earliest start time, ISO 8601"),
+        commence_to: time.describe("Latest start time, ISO 8601"),
+        cursor,
+        limit: limit("events", 10),
+        max_tokens: maxTokens,
+      },
+      annotations: SPENDS,
+    },
+    (a) =>
+      run(async (c) => {
+        const at = unpack(a.cursor);
+        const params = {
+          region: a.region,
+          sports: a.sport,
+          bookmakers: a.bookmakers,
+          markets: a.markets,
+          inPlay: a.in_play,
+          commenceTimeFrom: a.commence_from,
+          commenceTimeTo: a.commence_to,
+          // The API page is the reply's page, so a call pays for no more events than it can show.
+          limit: a.limit,
+          cursor: at.api,
+        };
+        const res = await c.raw(params, { maxTokens: a.max_tokens });
+        return priced(body(res), at, a.limit, res.tokens);
+      }),
+  );
+
+  server.registerTool(
+    "history",
+    {
+      title: "Historical odds",
+      description:
+        "Reads historical odds for one sport: the raw board as it stood at a time you name (kind snapshot), or a UTC " +
+        "day's opening and closing prices (kind closing). Serves every region, one region code a call: the UK & " +
+        "Ireland (uk) from 17 October 2026, with exchange prices beside the bookmakers'; each other region from " +
+        "16 November 2026, bookmakers only. A date outside the archive is refused with date_out_of_range and the " +
+        "earliest or latest date it holds. A day is added the night after it ends, so read today's prices with " +
+        "raw_odds. Spends tokens: priced first, and refused when it would cost more than max_tokens. Paged: pass " +
+        "next_cursor back as cursor within five minutes; each page is priced.",
+      inputSchema: {
+        kind: z.enum(["snapshot", "closing"]).describe("snapshot: the board at one time. closing: one day's opening and closing prices"),
+        date: z.string().describe("snapshot: a time, ISO 8601, such as 2026-11-16T12:00:00Z. closing: a UTC day, YYYY-MM-DD"),
+        sport: key.describe("Which sport: a sport key or the start of one, such as soccer"),
+        region,
+        bookmakers: keys(40).optional().describe("Only these bookmaker keys"),
+        exchanges: keys(4).optional().describe("Only these exchange keys (region uk)"),
+        markets: keys(20).optional().describe("Only these market keys, such as h2h"),
+        bookmakers_only: z.boolean().optional().describe("true: leave the exchanges out"),
+        cursor,
+        limit: limit("events", 10),
+        max_tokens: maxTokens,
+      },
+      annotations: SPENDS,
+    },
+    (a) =>
+      run(
+        async (c) => {
+          const at = unpack(a.cursor);
+          const params = {
+            date: a.date,
+            sports: a.sport,
+            region: a.region,
+            bookmakers: a.bookmakers,
+            exchanges: a.exchanges,
+            markets: a.markets,
+            bookmakersOnly: a.bookmakers_only,
+            limit: a.kind === "closing" ? Math.min(a.limit, CLOSING_PAGE) : a.limit,
+            cursor: at.api,
+          };
+          const res = await c.raw(params, { maxTokens: a.max_tokens });
+          return priced(body(res), at, a.limit, res.tokens);
+        },
+        true,
+        HISTORY[a.kind],
+      ),
+  );
+
+  server.registerTool(
     "event_odds",
     {
       title: "Event odds",
       description:
         "Reads one event's prices (id from events or odds) at each bookmaker and exchange carrying it, narrowed to " +
-        "the bookmakers and markets you name. Needs a key that can read raw odds. Spends tokens: priced first, " +
-        "and refused when it would cost more than max_tokens.",
+        "the bookmakers and markets you name. Serves every region, one region code a call. Needs a key that can " +
+        "read raw odds. Spends tokens: priced first, and refused when it would cost more than max_tokens.",
       inputSchema: {
         id: key.describe("An event id such as or_evt_da71d5873e85"),
         bookmakers: keys(40).optional().describe("Only these bookmaker or exchange keys"),
         markets: keys(20).optional().describe("Only these market keys, such as h2h"),
         region,
+        in_play: inPlay,
         limit: limit("bookmakers", 10),
         max_tokens: maxTokens,
       },
@@ -223,7 +369,7 @@ export function createServer(options: ServerOptions = {}): McpServer {
     },
     (a) =>
       run(async (c) => {
-        const res = await c.event(a.id, { region: a.region }, { maxTokens: a.max_tokens });
+        const res = await c.event(a.id, { region: a.region, inPlay: a.in_play }, { maxTokens: a.max_tokens });
         const event = body(res);
         // The route takes no venue or market filter, so the reply is narrowed here; that does not change the cost.
         const books = event.bookmakers
@@ -237,7 +383,7 @@ export function createServer(options: ServerOptions = {}): McpServer {
     "usage",
     {
       title: "Usage",
-      description: "Shows this key's plan, token balance, reset time and scope. Costs no tokens.",
+      description: "Shows this key's plan, token balance, reset time, scope and the regions it reads. Costs no tokens.",
       annotations: READ_ONLY,
     },
     () => run(async (c) => body(await c.usage())),
@@ -292,6 +438,15 @@ function page<T>(p: Page<T>, at: At, limit: number, noun: string): Record<string
   return { [noun]: rows.slice(0, n), more, next_cursor: `${at.skip + n}:${at.api ?? ""}` };
 }
 
+/** One page of a priced, paged board: its meta, the events that fit, and what the call cost. */
+function priced<T>(board: Page<T>, at: At, limit: number, tokens: Tokens): Record<string, unknown> {
+  const { next_cursor: _apiCursor, ...meta } = board.meta;
+  const out = page(board, at, limit, "events");
+  // Going on from a page cut for size asks the API for that page again, at its price.
+  if (typeof out.more === "string") out.more += " (that call is priced again), or name fewer bookmakers and markets";
+  return { meta, ...out, tokens: spent(tokens) };
+}
+
 function spent(t: Tokens) {
   return { cost: t.cost, remaining: t.remaining };
 }
@@ -314,7 +469,7 @@ function explain(err: unknown): Record<string, unknown> {
   }
   if (err instanceof OddsRelayError) {
     const { code, status, message, body, requestId } = err;
-    return { error: code, status, message, valid: body?.valid, request_id: requestId };
+    return { error: code, status, message, valid: body?.valid, earliest: body?.earliest, latest: body?.latest, request_id: requestId };
   }
   return { error: "client_error", message: err instanceof Error ? err.message : String(err) };
 }

@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+Three new tools, so an assistant can read every region OddsRelay serves, and the Agent Skill and README brought up to
+date.
+
+- `raw_odds`: the raw board for one sport, each bookmaker's own prices. `region` takes one code, or several
+  international codes joined by commas (`us,global`), read as one board; `uk` is asked alone. `in_play` adds in-play
+  events or reads them alone. Paged, priced first and refused above `max_tokens`.
+- `history`: historical odds for one sport and one region, as the raw board at a time you name (`snapshot`) or a day's
+  opening and closing prices (`closing`). Paged, priced first and refused above `max_tokens`. A date before a region's
+  first day comes back with the earliest date the archive holds.
+- `regions`: the region codes your key reads. Costs no tokens.
+- `bookmakers` takes `region`, and `event_odds` takes `in_play`.
+- Every tool's description says which regions it serves: the matched boards (`odds`) are for the UK & Ireland only,
+  and the lists, `raw_odds`, `event_odds` and `history` serve every region.
+- The README has a Regions section and first questions for a region outside the UK & Ireland.
+- The Agent Skill, `skills/oddsrelay/SKILL.md`, describes the feed as it is now: raw prices for the UK & Ireland and
+  20 more regions, with the matched boards and exchange prices for the UK & Ireland only (a matched board in another
+  region is 403 `product_not_in_region`).
+- Regions in the Agent Skill: a self-serve key reads every region, each at its own token price; one `region` a call,
+  except that the raw board takes a comma list of international codes (`region=us,global`), priced as their sum, and
+  `uk` is always asked alone.
+- In-play in the Agent Skill: `inPlay=include` or `inPlay=only` on the raw board and on one event's prices, and
+  `inPlay=only` on the `standard` and `dutching` boards.
+- Historical odds in the Agent Skill: `region` as on the live routes, the exchanges beside the bookmakers in the UK &
+  Ireland, bookmakers only from 16 November 2026 in each other region, and prices under `regions.<code>.historical`.
+- The Agent Skill names the new tools.
+
 ## 0.1.2 (2026-10-29)
 
 A Gemini CLI extension, an Agent Skill and new README text: the code is the same as 0.1.1, apart from the version it
